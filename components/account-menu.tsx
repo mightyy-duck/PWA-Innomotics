@@ -1,9 +1,7 @@
 "use client";
 
 import { Avatar, Button } from "@heroui/react";
-import { ArrowLeftRight } from "lucide-react";
-
-import { SWITCH_ACCOUNT_URL } from "@/lib/switch-account";
+import { LogOut } from "lucide-react";
 
 const initials = (name: string) =>
   name
@@ -23,14 +21,10 @@ export function AccountMenu({ name, email }: { name: string; email: string }) {
         <span className="text-sm font-medium">{name}</span>
         {email && <span className="text-xs text-muted">{email}</span>}
       </div>
-      {/* Full-page navigation: Easy Auth endpoints are not Next routes. */}
-      <Button
-        size="sm"
-        variant="secondary"
-        onPress={() => window.location.assign(SWITCH_ACCOUNT_URL)}
-      >
-        <ArrowLeftRight size={14} />
-        Switch account
+      {/* Full-page navigation: /signout is a route handler, not a Next page. */}
+      <Button size="sm" variant="secondary" onPress={() => window.location.assign("/signout")}>
+        <LogOut size={14} />
+        Log out
       </Button>
     </div>
   );
