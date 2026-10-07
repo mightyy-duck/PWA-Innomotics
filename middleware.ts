@@ -16,8 +16,10 @@ export function middleware(req: NextRequest) {
   const start = verifyStamp(req.cookies.get(SESSION_COOKIE)?.value);
 
   // Missing, forged or expired stamp -> fail closed: drop cookies, fresh login.
-  // Relative Location: req.url carries the internal bind address behind App Service.
-  if (!start) return new NextResponse(null, { status: 307, headers: { Location: "/signout" } });
+  // Rewrite, not redirect: middleware rejects a relative Location ("Invalid URL"),
+  // and req.url carries the internal bind address behind App Service. /signout's
+  // own (route handler) response clears the cookies and redirects to login.
+  if (!start) return NextResponse.rewrite(new URL("/signout", req.url));
 
   headers.set(SESSION_HEADER, String(start));
 
