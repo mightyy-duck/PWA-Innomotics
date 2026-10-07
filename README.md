@@ -3,7 +3,7 @@
 Next.js 15 + HeroUI v3, behind **App Service Easy Auth**. Container port 3000 (`next dev` uses 3011).
 
 ## Pingpong session rules
-Easy Auth does all of it; the app has no middleware or session cookie of its own:
+Easy Auth does all of it. The only app-side piece is `middleware.ts`, which stamps when a new Easy Auth cookie is first seen (`pwa_session_started`, display only) for the countdown:
 
 | Trigger | What happens |
 |---|---|

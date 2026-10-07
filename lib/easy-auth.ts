@@ -25,7 +25,7 @@ type Claim = { typ: string; val: string };
 
 // Must match Easy Auth cookieExpiration (FixedTime). The AppServiceAuthSession
 // cookie is HttpOnly + encrypted and its expiry never reaches the server or JS,
-// so we derive it: login time (id token iat) + this many minutes.
+// so we derive it: session start + this many minutes.
 const SESSION_MINUTES = Number(process.env.EASY_AUTH_SESSION_MINUTES) || 15;
 
 const claim = (claims: Claim[], ...types: string[]) =>
@@ -46,8 +46,11 @@ export async function getUser(): Promise<EasyAuthUser | null> {
       h.get("x-ms-client-principal-name") ||
       claim(claims, "preferred_username", "upn", "email");
 
-    const loggedInAt = Number(claim(claims, "iat", "auth_time"));
-    const sessionExpiresAt = loggedInAt ? (loggedInAt + SESSION_MINUTES * 60) * 1000 : null;
+    // middleware.ts stamps the first request seen with this cookie; fall back to the
+    // id token's iat (seconds) if it is missing.
+    const startedAt =
+      Number(h.get("x-session-started")) || Number(claim(claims, "iat", "auth_time")) * 1000;
+    const sessionExpiresAt = startedAt ? startedAt + SESSION_MINUTES * 60_000 : null;
 
     // Only present when the App Service token store is enabled.
     const idToken = decodeJwt(h.get("x-ms-token-aad-id-token"));

@@ -21,12 +21,17 @@ export function SessionCountdown({ expiresAt }: { expiresAt: number }) {
       const remaining = expiresAt - Date.now();
 
       setLeft(remaining);
-      // Cookie is gone: a full reload lets Easy Auth send us to the login page.
-      if (remaining <= 0) window.location.reload();
+      // Don't reload: if the cookie is still valid the page just comes back at 00:00 and
+      // loops. /signout drops the cookie and starts a fresh login whatever its state.
+      if (remaining <= 0) {
+        clearInterval(id);
+        window.location.assign("/signout");
+      }
     };
 
-    tick();
     const id = setInterval(tick, 1000);
+
+    tick();
 
     return () => clearInterval(id);
   }, [expiresAt]);
