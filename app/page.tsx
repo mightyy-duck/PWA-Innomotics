@@ -1,4 +1,6 @@
 import { AccountMenu } from "@/components/account-menu";
+import { SessionCountdown } from "@/components/session-countdown";
+import { TokenView } from "@/components/token-view";
 import { getUser } from "@/lib/easy-auth";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +16,8 @@ export default async function Home() {
       </header>
       <section className="p-6 text-sm text-muted">
         {user ? `Signed in as ${user.name}.` : "Not signed in."}
+        {user?.sessionExpiresAt && <SessionCountdown expiresAt={user.sessionExpiresAt} />}
+        {user && <TokenView principal={user.principal} idToken={user.idToken} />}
       </section>
     </main>
   );
