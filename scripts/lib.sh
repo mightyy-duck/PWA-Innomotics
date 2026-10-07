@@ -75,6 +75,9 @@ on_exit() {
 }
 trap on_exit EXIT
 trap 'exit 130' INT
+# A command that fails under set -e would otherwise exit silently: name it.
+set -E
+trap 'echo "  ${C_RED}[FAIL]${C_OFF} Unexpected error at $(basename "${BASH_SOURCE[0]:-$0}"):$LINENO: $BASH_COMMAND" >&2' ERR
 
 finish() {
   stage_end

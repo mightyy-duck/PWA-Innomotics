@@ -85,9 +85,10 @@ stage "Current state of $WEBAPP_NAME"
 if [ "$fx" = "sitecontainers" ]; then
   main=$(az webapp sitecontainers list -n "$WEBAPP_NAME" -g "$RESOURCE_GROUP" --query "[?isMain].name | [0]" -o tsv)
   [ -n "$main" ] || die "No main site container on $WEBAPP_NAME."
-  read -r current_image current_port < <(az webapp sitecontainers show -n "$WEBAPP_NAME" -g "$RESOURCE_GROUP" \
-    --container-name "$main" --query "[image, targetPort]" -o tsv | tr '\n' ' ')
-  current_startup=$(az webapp sitecontainers show -n "$WEBAPP_NAME" -g "$RESOURCE_GROUP" --container-name "$main" --query startUpCommand -o tsv)
+  # One az call (they're slow); tsv prints one value per line, startup may be empty.
+  state=$(az webapp sitecontainers show -n "$WEBAPP_NAME" -g "$RESOURCE_GROUP" --container-name "$main" \
+    --query "[image, targetPort, startUpCommand]" -o tsv)
+  { IFS= read -r current_image; IFS= read -r current_port; IFS= read -r current_startup; } <<<"$state" || true
 else
   current_image="${fx#DOCKER|}"
   current_port=$(az webapp config appsettings list -n "$WEBAPP_NAME" -g "$RESOURCE_GROUP" --query "[?name=='WEBSITES_PORT'].value | [0]" -o tsv)
