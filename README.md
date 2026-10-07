@@ -22,5 +22,28 @@ Log out never uses `/.auth/logout`: that goes through Microsoft's logout page ("
 - Excluded paths (no login needed): `/signout`, `/api/health`, `/_next/static/*`. Set `globalValidation.excludedPaths` via `az rest` on `.../config/authsettingsV2`.
 - Allowed external redirect not needed; all redirects are relative.
 
-## Deploy
-`ACR_NAME=<qa-registry> QA_TENANT_ID=<guid> ./scripts/push-image.sh`
+## Release / deploy
+Run the scripts from **Git Bash** (Windows), WSL, macOS or Linux - not PowerShell/cmd.
+
+**First time:** install [Docker Desktop](https://www.docker.com/products/docker-desktop/) (running) and the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli), then `az login --tenant 8c66b612-f806-4e98-8ffb-dacca0235e16`. `./scripts/release.sh --check` tells you if anything is missing.
+
+**Release (normal case):** commit your changes, `git pull`, then
+```bash
+./scripts/release.sh
+```
+It builds + pushes `pwaqa.azurecr.io/pwa-innomotics:build-<utc>-<commit>` (and `:latest`), shows what `PWAQA` runs now vs. after, asks before deploying, restarts, and waits until `/api/health` returns 200. Takes ~5-10 min.
+
+| Script | What it does |
+|---|---|
+| `release.sh [--yes] [--allow-dirty] [--port N] [--startup "<cmd>"]` | push + deploy + health check |
+| `push-image.sh [tag] [--allow-dirty] [--verbose]` | build + push only |
+| `deploy-webapp.sh --tag <tag> [--port 3000] [--startup "<cmd>"] [--image <repo>] [--yes]` | point `PWAQA` at an existing image, restart, health check. Prints the roll-back command before changing anything |
+| `list-images.sh [--name <acr>] [--repo <repo>] [--top 10]` | tags in a registry, newest first |
+
+Every script: `--help`, `--check` (checks only, changes nothing), numbered stages `[n/N] ... DONE (12s)` / `FAILED`, colored `[ok]`/`[warn]`/`[FAIL]`, and the fix command for each failure. `NO_COLOR=1` turns colors off.
+
+Rules the scripts enforce: uncommitted changes block a release (the image must match a commit; `--allow-dirty` to override); deploys use exact tags, `:latest` only with a warning. Defaults (`pwaqa`, `PWAQA`, rg `PWA-QA`, image `pwa-innomotics`) live in `scripts/lib.sh` and can be overridden with env vars.
+
+**Roll back:** `./scripts/list-images.sh --repo pwa-innomotics`, then `./scripts/deploy-webapp.sh --tag <older tag>`.
+
+The web app pulls with its system-assigned identity, which needs `AcrPull` on the registry.
