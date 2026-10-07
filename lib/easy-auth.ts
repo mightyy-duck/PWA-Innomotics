@@ -1,6 +1,10 @@
 import { headers } from "next/headers";
 
+import { SESSION_HEADER, SESSION_MINUTES } from "@/lib/session";
+
 export type EasyAuthUser = { name: string; email: string; sessionExpiresAt: number | null;
+  now: number;
+  issuedAt: number | null;
   principal: unknown;
   idToken: { header: unknown; payload: unknown } | null;
 };
@@ -23,11 +27,6 @@ function decodeJwt(jwt: string | null) {
 
 type Claim = { typ: string; val: string };
 
-// Must match Easy Auth cookieExpiration (FixedTime). The AppServiceAuthSession
-// cookie is HttpOnly + encrypted and its expiry never reaches the server or JS,
-// so we derive it: session start + this many minutes.
-const SESSION_MINUTES = Number(process.env.EASY_AUTH_SESSION_MINUTES) || 15;
-
 const claim = (claims: Claim[], ...types: string[]) =>
   claims.find((c) => types.includes(c.typ))?.val ?? "";
 
@@ -46,16 +45,15 @@ export async function getUser(): Promise<EasyAuthUser | null> {
       h.get("x-ms-client-principal-name") ||
       claim(claims, "preferred_username", "upn", "email");
 
-    // middleware.ts stamps the first request seen with this cookie; fall back to the
-    // id token's iat (seconds) if it is missing.
-    const startedAt =
-      Number(h.get("x-session-started")) || Number(claim(claims, "iat", "auth_time")) * 1000;
+    // Login moment stamped by /auth/established, verified in middleware.ts.
+    const startedAt = Number(h.get(SESSION_HEADER)) || 0;
     const sessionExpiresAt = startedAt ? startedAt + SESSION_MINUTES * 60_000 : null;
+    const issuedAt = Number(claim(claims, "iat", "auth_time")) || null;
 
     // Only present when the App Service token store is enabled.
     const idToken = decodeJwt(h.get("x-ms-token-aad-id-token"));
 
-    return { name: claim(claims, "name") || email, email, sessionExpiresAt, principal, idToken };
+    return { name: claim(claims, "name") || email, email, sessionExpiresAt, now: Date.now(), issuedAt, principal, idToken };
   } catch {
     return null;
   }

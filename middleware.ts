@@ -1,53 +1,31 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-const STARTED = "pwa_session_started"; // "<sha256 of Easy Auth cookie>.<epoch ms>"
-const HEADER = "x-session-started";
+import { SESSION_COOKIE, SESSION_HEADER, verifyStamp } from "@/lib/session";
 
-const sha256 = async (text: string) =>
-  Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-
-// The Easy Auth cookie's expiry is invisible to the app, but its *value* changes on
-// every login. First request we see with a new value = the session just started
-// (the post-login redirect), so we stamp that moment and pass it on to the page.
-export async function middleware(req: NextRequest) {
-  const session = req.cookies
-    .getAll()
-    .filter((c) => c.name.startsWith("AppServiceAuthSession"))
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map((c) => c.value)
-    .join("");
+// Enforces the app's own session limit (see lib/session.ts). Easy Auth's cookie is
+// only the backstop (configured a bit longer), so we decide when a session is over.
+export function middleware(req: NextRequest) {
   const headers = new Headers(req.headers);
 
-  headers.delete(HEADER); // never trust a client-supplied value
+  headers.delete(SESSION_HEADER); // never trust a client-supplied value
 
-  if (!session) {
-    const res = NextResponse.next({ request: { headers } });
+  const hasEasyAuth = req.cookies.getAll().some((c) => c.name.startsWith("AppServiceAuthSession"));
 
-    if (req.cookies.has(STARTED)) res.cookies.delete(STARTED);
+  if (!hasEasyAuth) return NextResponse.next({ request: { headers } });
 
-    return res;
-  }
+  const start = verifyStamp(req.cookies.get(SESSION_COOKIE)?.value);
 
-  const hash = await sha256(session);
-  const [prevHash, prevTs] = (req.cookies.get(STARTED)?.value ?? "").split(".");
-  const known = prevHash === hash && Number(prevTs) > 0;
-  const startedAt = known ? Number(prevTs) : Date.now();
+  // Missing, forged or expired stamp -> fail closed: drop cookies, fresh login.
+  // Relative Location: req.url carries the internal bind address behind App Service.
+  if (!start) return new NextResponse(null, { status: 307, headers: { Location: "/signout" } });
 
-  headers.set(HEADER, String(startedAt));
-  const res = NextResponse.next({ request: { headers } });
+  headers.set(SESSION_HEADER, String(start));
 
-  if (!known) {
-    res.cookies.set(STARTED, `${hash}.${startedAt}`, {
-      path: "/",
-      httpOnly: true,
-      sameSite: "lax",
-      secure: req.nextUrl.protocol === "https:" || req.headers.get("x-forwarded-proto") === "https",
-    });
-  }
-
-  return res;
+  return NextResponse.next({ request: { headers } });
 }
 
-export const config = { matcher: ["/((?!_next/static|_next/image|api/health|signout|favicon.ico).*)"] };
+export const config = {
+  runtime: "nodejs",
+  // /auth/established must run without a stamp (it creates it); /signout clears it.
+  matcher: ["/((?!_next/static|_next/image|api/health|signout|auth/established|favicon.ico).*)"],
+};

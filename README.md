@@ -3,14 +3,19 @@
 Next.js 15 + HeroUI v3, behind **App Service Easy Auth**. Container port 3000 (`next dev` uses 3011).
 
 ## Pingpong session rules
-Easy Auth does all of it. The only app-side piece is `middleware.ts`, which stamps when a new Easy Auth cookie is first seen (`pwa_session_started`, display only) for the countdown:
+Easy Auth's cookie expiry is unreadable (HttpOnly, encrypted), so the **app owns the 15 min limit**:
+
+- Login redirects to `/auth/established`, which stamps the login moment in `pwa_session` (HMAC-signed with `SESSION_SECRET`, persistent, expires after `SESSION_MINUTES`). It only stamps a login whose token `iat` is < 5 min old.
+- `middleware.ts`: Easy Auth cookie present but stamp missing/forged/expired -> `/signout` (fresh forced login). Valid stamp -> time left goes to the page; the countdown reaches 0 -> `/signout`.
+- Closing and reopening the browser keeps the stamp, so the countdown continues with the true time left.
+- Easy Auth `cookieExpiration` (FixedTime) is only a backstop: set it **longer** than `SESSION_MINUTES` (00:16:00).
 
 | Trigger | What happens |
 |---|---|
-| Any visit without an Easy Auth session | Easy Auth -> Microsoft login (forced, `prompt=login`) -> back to the page |
-| Session older than 15 min | Easy Auth cookie expires (`cookieExpiration` FixedTime 00:15:00); next request logs in again |
-| Log out button | `/signout` expires the `AppServiceAuthSession` cookie in the app -> `/.auth/login/aad?post_login_redirect_uri=/` -> login -> `/` |
-| Password changed on the primary account | **Not handled here** - needs an IdP-side signal (e.g. Entra revoke / CAE); the 15 min cookie is the upper bound |
+| Any visit without an Easy Auth session | Easy Auth -> Microsoft login (forced, `prompt=login`) -> `/auth/established` -> `/` |
+| Session older than `SESSION_MINUTES` | middleware redirects to `/signout` -> login again |
+| Log out button | `/signout` expires `AppServiceAuthSession*` + `pwa_session` -> `/.auth/login/aad?post_login_redirect_uri=/auth/established` |
+| Password changed on the primary account | **Not handled here** - needs an IdP-side signal (e.g. Entra revoke / CAE) |
 
 Log out never uses `/.auth/logout`: that goes through Microsoft's logout page ("Pick an account to sign out").
 
@@ -18,7 +23,7 @@ Log out never uses `/.auth/logout`: that goes through Microsoft's logout page ("
 - Identity provider issuer: `https://login.microsoftonline.com/<TENANT 2 (product) ID>/v2.0` - NOT `/common` or tenant 1.
 - Require authentication; unauthenticated -> HTTP 302 to Microsoft login.
 - AAD `loginParameters`: `["prompt=login"]` - forces credentials on every login.
-- Cookie expiration: FixedTime `00:15:00`.
+- Cookie expiration: FixedTime `00:16:00` (backstop; app limit is `SESSION_MINUTES`=15).
 - Excluded paths (no login needed): `/signout`, `/api/health`, `/_next/static/*`. Set `globalValidation.excludedPaths` via `az rest` on `.../config/authsettingsV2`.
 - Allowed external redirect not needed; all redirects are relative.
 

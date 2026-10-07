@@ -11,18 +11,20 @@ const format = (ms: number) => {
   return `${m}:${s}`;
 };
 
-// expiresAt: epoch ms of the Easy Auth session cookie expiry (computed server-side).
-export function SessionCountdown({ expiresAt }: { expiresAt: number }) {
+// expiresAt: epoch ms the app-enforced session ends (login stamp + SESSION_MINUTES).
+export function SessionCountdown({ expiresAt, serverNow }: { expiresAt: number; serverNow: number }) {
   // null until mounted: avoids a server/client hydration mismatch on Date.now().
   const [left, setLeft] = useState<number | null>(null);
 
   useEffect(() => {
+    // Server clock offset, so a wrong device clock can't skew the countdown.
+    const offset = serverNow - Date.now();
     const tick = () => {
-      const remaining = expiresAt - Date.now();
+      const remaining = expiresAt - (Date.now() + offset);
 
       setLeft(remaining);
-      // Don't reload: if the cookie is still valid the page just comes back at 00:00 and
-      // loops. /signout drops the cookie and starts a fresh login whatever its state.
+      // The app owns the limit (middleware.ts would bounce us here anyway); /signout
+      // drops the cookies and starts a fresh login whatever Easy Auth thinks.
       if (remaining <= 0) {
         clearInterval(id);
         window.location.assign("/signout");
@@ -33,8 +35,18 @@ export function SessionCountdown({ expiresAt }: { expiresAt: number }) {
 
     tick();
 
-    return () => clearInterval(id);
-  }, [expiresAt]);
+    // Timers are throttled/frozen in background tabs; re-check when the tab returns.
+    const onShow = () => document.visibilityState === "visible" && tick();
+
+    document.addEventListener("visibilitychange", onShow);
+    window.addEventListener("pageshow", onShow);
+
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onShow);
+      window.removeEventListener("pageshow", onShow);
+    };
+  }, [expiresAt, serverNow]);
 
   return (
     <p className="mt-2 flex items-center gap-1.5" aria-live="off">
