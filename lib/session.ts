@@ -44,7 +44,7 @@ export function verifyStamp(value: string | undefined, sid: string): number | nu
 
   if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
 
-  return start <= Date.now() + 5_000 ? start : null;
+  return start;
 }
 
 export const isHttps = (req: { nextUrl: { protocol: string }; headers: Headers }) =>
