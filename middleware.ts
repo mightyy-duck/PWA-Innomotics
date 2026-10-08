@@ -1,33 +1,41 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { SESSION_COOKIE, SESSION_HEADER, verifyStamp } from "@/lib/session";
+import { easyAuthSessionId, isHttps, SESSION_COOKIE, SESSION_HEADER, signStamp, verifyStamp } from "@/lib/session";
 
-// Enforces the app's own session limit (see lib/session.ts). Easy Auth's cookie is
-// only the backstop (configured a bit longer), so we decide when a session is over.
+// Stamps when the current Easy Auth login was first seen, for the countdown (see
+// lib/session.ts). Never redirects: Easy Auth's cookie expiry ends the session and
+// the countdown sends the user to /signout, so nothing here can cause a login loop.
 export function middleware(req: NextRequest) {
   const headers = new Headers(req.headers);
 
   headers.delete(SESSION_HEADER); // never trust a client-supplied value
 
-  const hasEasyAuth = req.cookies.getAll().some((c) => c.name.startsWith("AppServiceAuthSession"));
+  const sid = easyAuthSessionId(req.cookies.getAll());
 
-  if (!hasEasyAuth) return NextResponse.next({ request: { headers } });
+  if (!sid) return NextResponse.next({ request: { headers } });
 
-  const start = verifyStamp(req.cookies.get(SESSION_COOKIE)?.value);
-
-  // Missing, forged or expired stamp -> fail closed: drop cookies, fresh login.
-  // Rewrite, not redirect: middleware rejects a relative Location ("Invalid URL"),
-  // and req.url carries the internal bind address behind App Service. /signout's
-  // own (route handler) response clears the cookies and redirects to login.
-  if (!start) return NextResponse.rewrite(new URL("/signout", req.url));
+  const known = verifyStamp(req.cookies.get(SESSION_COOKIE)?.value, sid);
+  const start = known ?? Date.now();
 
   headers.set(SESSION_HEADER, String(start));
 
-  return NextResponse.next({ request: { headers } });
+  const res = NextResponse.next({ request: { headers } });
+
+  // New Easy Auth login (or missing/forged stamp): stamp it as starting now.
+  if (!known) {
+    res.cookies.set(SESSION_COOKIE, signStamp(start, sid), {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      secure: isHttps(req),
+      maxAge: 24 * 60 * 60, // outlives any Easy Auth login; replaced on the next one
+    });
+  }
+
+  return res;
 }
 
 export const config = {
   runtime: "nodejs",
-  // /auth/established must run without a stamp (it creates it); /signout clears it.
-  matcher: ["/((?!_next/static|_next/image|api/health|signout|auth/established|favicon.ico).*)"],
+  matcher: ["/((?!_next/static|_next/image|api/health|signout|favicon.ico).*)"],
 };

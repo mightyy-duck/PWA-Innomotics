@@ -3,18 +3,17 @@
 Next.js 15 + HeroUI v3, behind **App Service Easy Auth**. Container port 3000 (`next dev` uses 3011).
 
 ## Pingpong session rules
-Easy Auth's cookie expiry is unreadable (HttpOnly, encrypted), so the **app owns the 15 min limit**:
+**Easy Auth's cookie ends the session** (`cookieExpiration` FixedTime `00:15:00`). The app never forces a re-login itself; it only tracks when the login started, for the countdown:
 
-- Login redirects to `/auth/established`, which stamps the login moment in `pwa_session` (HMAC-signed with `SESSION_SECRET`, persistent, expires after `SESSION_MINUTES`). It only stamps a login whose token `iat` is < 5 min old.
-- `middleware.ts`: Easy Auth cookie present but stamp missing/forged/expired -> `/signout` (fresh forced login). Valid stamp -> time left goes to the page; the countdown reaches 0 -> `/signout`.
-- Closing and reopening the browser keeps the stamp, so the countdown continues with the true time left.
-- Easy Auth `cookieExpiration` (FixedTime) is only a backstop: set it **longer** than `SESSION_MINUTES` (00:16:00).
+- `middleware.ts` stamps `pwa_session` (HMAC-signed with `SESSION_SECRET`) the first time it sees an Easy Auth login. The stamp is bound to that login's `AppServiceAuthSession*` cookie, so a new login automatically gets a new stamp - no extra redirect, no second login.
+- Countdown = stamp + `SESSION_MINUTES` (keep it equal to Easy Auth's cookie expiration). At 0 the page goes to `/signout`.
+- Deleting `pwa_session` only resets the countdown display; Easy Auth's cookie still expires on time.
 
 | Trigger | What happens |
 |---|---|
-| Any visit without an Easy Auth session | Easy Auth -> Microsoft login (forced, `prompt=login`) -> `/auth/established` -> `/` |
-| Session older than `SESSION_MINUTES` | middleware redirects to `/signout` -> login again |
-| Log out button | `/signout` expires `AppServiceAuthSession*` + `pwa_session` -> `/.auth/login/aad?post_login_redirect_uri=/auth/established` |
+| Any visit without an Easy Auth session | Easy Auth -> Microsoft login (forced, `prompt=login`) -> back to the page (one login) |
+| Session older than 15 min | Easy Auth cookie expired -> next request logs in again (one login); an open page's countdown goes to `/signout` |
+| Log out button | `/signout` expires `AppServiceAuthSession*` + `pwa_session` -> `/.auth/login/aad?post_login_redirect_uri=/` |
 | Password changed on the primary account | **Not handled here** - needs an IdP-side signal (e.g. Entra revoke / CAE) |
 
 Log out never uses `/.auth/logout`: that goes through Microsoft's logout page ("Pick an account to sign out").
@@ -23,10 +22,10 @@ Log out never uses `/.auth/logout`: that goes through Microsoft's logout page ("
 - Identity provider issuer: `https://login.microsoftonline.com/<TENANT 2 (product) ID>/v2.0` - NOT `/common` or tenant 1.
 - Require authentication; unauthenticated -> HTTP 302 to Microsoft login.
 - AAD `loginParameters`: `["prompt=login"]` - forces credentials on every login.
-- Cookie expiration: FixedTime `00:16:00` (backstop; app limit is `SESSION_MINUTES`=15).
-- Excluded paths (no login needed): `/signout`, `/api/health`, `/_next/static/*`. Set `globalValidation.excludedPaths` via `az rest` on `.../config/authsettingsV2`.
+- Cookie expiration: FixedTime `00:15:00`, equal to `SESSION_MINUTES`.
+- Excluded paths (no login needed): `/signout`, `/api/health`, `/_next/static/*`. **`/signout` must be excluded**, or an expired session hitting it logs in, then gets signed out again. Set `globalValidation.excludedPaths` via `az rest` on `.../config/authsettingsV2`.
+- App settings: `SESSION_SECRET` (random, 32+ bytes), `SESSION_MINUTES=15`.
 - Allowed external redirect not needed; all redirects are relative.
-
 ## Release / deploy
 Run the scripts from **Git Bash** (Windows), WSL, macOS or Linux - not PowerShell/cmd.
 

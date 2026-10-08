@@ -45,7 +45,7 @@ export async function getUser(): Promise<EasyAuthUser | null> {
       h.get("x-ms-client-principal-name") ||
       claim(claims, "preferred_username", "upn", "email");
 
-    // Login moment stamped by /auth/established, verified in middleware.ts.
+    // Login moment stamped by middleware.ts when this Easy Auth login was first seen.
     const startedAt = Number(h.get(SESSION_HEADER)) || 0;
     const sessionExpiresAt = startedAt ? startedAt + SESSION_MINUTES * 60_000 : null;
     const issuedAt = Number(claim(claims, "iat", "auth_time")) || null;
